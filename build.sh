@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds build/tvhome.apk with the bare Android SDK tools (no Gradle, no dependencies).
+# Builds build/cleanhome.apk with the bare Android SDK tools (no Gradle, no dependencies).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -41,5 +41,5 @@ if [ ! -f "$KEY" ]; then
         -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=tvhome" >/dev/null
 fi
 "$BT/zipalign" -f 4 build/unsigned.apk build/aligned.apk
-"$BT/apksigner" sign --ks "$KEY" --ks-pass pass:android --out build/tvhome.apk build/aligned.apk
-ls -lh build/tvhome.apk
+"$BT/apksigner" sign --ks "$KEY" --ks-pass pass:android --out build/cleanhome.apk build/aligned.apk
+ls -lh build/cleanhome.apk

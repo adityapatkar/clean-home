@@ -1,4 +1,4 @@
-package com.aditya.tvhome;
+package com.aditya.cleanhome;
 
 import android.animation.TimeInterpolator;
 

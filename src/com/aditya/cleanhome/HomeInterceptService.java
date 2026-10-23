@@ -1,4 +1,4 @@
-package com.aditya.tvhome;
+package com.aditya.cleanhome;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.Context;
@@ -37,8 +37,7 @@ public class HomeInterceptService extends AccessibilityService {
     private static final String INPUT_PLAYER = "com.amazon.tv.inputpreference.service";
     private static final String SETTINGS = "com.amazon.tv.settings.v2";
 
-    /** Amazon caches tile labels, so the tile may still carry the app's earlier name. */
-    private static final String[] TILE_LABELS = {"Clean Home", "Home"};
+    private static final String[] TILE_LABELS = {"Clean Home"};
     /** App tiles are FrameLayouts; Amazon's "Home" tab in the nav bar is a ViewGroup. */
     private static final String TILE_CLASS = "android.widget.FrameLayout";
     private static final String NAV_CLASS = "android.view.ViewGroup";
@@ -57,9 +56,9 @@ public class HomeInterceptService extends AccessibilityService {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private long bounceStarted = -DEDUPE_MS;
     private long lastSettingsWindow = -AFTER_SETTINGS_MS;
-    private final long[] recentBounces = new long[4];
-    private int bounceCount;
     private long pausedUntil;
+    private long lastHomeShown = -10_000;
+    private int quickReturns;
     private boolean clicked;
     private View cover;
 
@@ -78,7 +77,10 @@ public class HomeInterceptService extends AccessibilityService {
 
     /** Called by HomeActivity once it is on screen. */
     static void homeShown() {
-        if (instance != null) instance.hideCover();
+        HomeInterceptService s = instance;
+        if (s == null) return;
+        s.hideCover();
+        s.lastHomeShown = SystemClock.uptimeMillis();
     }
 
     /**
@@ -100,16 +102,53 @@ public class HomeInterceptService extends AccessibilityService {
         return true;
     }
 
+    /**
+     * Fire OS goes to its home just before the screen turns off, and on power-on that
+     * screen simply resumes - no window change, so no event. Check on every wake.
+     */
+    private final android.content.BroadcastReceiver screen = new android.content.BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (!Intent.ACTION_SCREEN_ON.equals(intent.getAction())) return;
+            // Give the resumed window a moment to become the active one.
+            handler.postDelayed(HomeInterceptService.this::bounceIfAmazonInFront, 400);
+            handler.postDelayed(HomeInterceptService.this::bounceIfAmazonInFront, 1500);
+        }
+    };
+
     @Override
     protected void onServiceConnected() {
         instance = this;
+        android.content.IntentFilter f = new android.content.IntentFilter(Intent.ACTION_SCREEN_ON);
+        f.addAction(Intent.ACTION_SCREEN_OFF);
+        registerReceiver(screen, f);
+        // Covers the service (re)starting at boot or after an update while Amazon is up.
+        handler.postDelayed(this::bounceIfAmazonInFront, 800);
     }
 
     @Override
     public boolean onUnbind(Intent intent) {
         instance = null;
+        try {
+            unregisterReceiver(screen);
+        } catch (RuntimeException ignored) {
+        }
         hideCover();
         return super.onUnbind(intent);
+    }
+
+    private boolean screenOn() {
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        return pm == null || pm.isInteractive();
+    }
+
+    private void bounceIfAmazonInFront() {
+        if (!screenOn() || inputLabel != null || Prefs.amazonHomeAllowed(this)) return;
+        AccessibilityNodeInfo root = getRootInActiveWindow();
+        if (root == null || !AMAZON_HOME.contentEquals(String.valueOf(root.getPackageName()))) return;
+        long now = SystemClock.uptimeMillis();
+        if (now - bounceStarted < DEDUPE_MS) return;
+        startBounce(now);
     }
 
     // ------------------------------------------------------------ events
@@ -137,13 +176,19 @@ public class HomeInterceptService extends AccessibilityService {
             return;
         }
         if (Prefs.amazonHomeAllowed(this)) return;
+        // Fire OS shows its home as it goes to sleep; redirecting a dark screen is
+        // pointless (and used to trip the loop guard). The wake check handles it.
+        if (!screenOn()) return;
         if (now - lastSettingsWindow < AFTER_SETTINGS_MS) return;
         if (now - lastInputClick < AFTER_INPUT_MS) return;
         if (now < pausedUntil) return;
         // Amazon reports its home window twice per Home press.
         if (now - bounceStarted < DEDUPE_MS) return;
         if (looping(now)) return;
+        startBounce(now);
+    }
 
+    private void startBounce(long now) {
         bounceStarted = now;
         clicked = false;
         showCover();
@@ -151,13 +196,17 @@ public class HomeInterceptService extends AccessibilityService {
         handler.post(clickTile);
     }
 
-    /** Safety valve: if something keeps reopening Amazon's home, back off for a minute. */
+    /**
+     * Safety valve for a genuine fight (something reopening Amazon's home right after
+     * ours appears): three returns within a second of our home showing, in a row,
+     * pauses redirects for 20 s. Ordinary Home presses, however quick, never count.
+     */
     private boolean looping(long now) {
-        recentBounces[bounceCount++ % recentBounces.length] = now;
-        if (bounceCount < recentBounces.length) return false;
-        long oldest = recentBounces[bounceCount % recentBounces.length];
-        if (now - oldest < 10_000) {
-            pausedUntil = now + 60_000;
+        if (now - lastHomeShown < 1000) quickReturns++;
+        else quickReturns = 0;
+        if (quickReturns >= 3) {
+            quickReturns = 0;
+            pausedUntil = now + 20_000;
             hideCover();
             return true;
         }
@@ -261,6 +310,16 @@ public class HomeInterceptService extends AccessibilityService {
     private boolean clickNode(String[] labels, String cls) {
         AccessibilityNodeInfo root = amazonRoot();
         if (root == null) return false;
+        // Fast path: one IPC. Works for Amazon's app-row tiles.
+        for (String label : labels) {
+            for (AccessibilityNodeInfo n : root.findAccessibilityNodeInfosByText(label)) {
+                if (n.isClickable() && cls.contentEquals(String.valueOf(n.getClassName()))
+                        && label.contentEquals(String.valueOf(n.getContentDescription()))) {
+                    return n.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+                }
+            }
+        }
+        // Slow path: walk the tree (each child is an IPC), for views that don't answer text search.
         AccessibilityNodeInfo n = find(root, (node, d) -> node.isClickable()
                 && cls.contentEquals(String.valueOf(node.getClassName()))
                 && java.util.Arrays.asList(labels).contains(d));

@@ -1,4 +1,4 @@
-package com.aditya.tvhome;
+package com.aditya.cleanhome;
 
 import android.content.Context;
 import android.graphics.Typeface;

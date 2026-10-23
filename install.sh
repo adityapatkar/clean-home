@@ -11,13 +11,15 @@ if [ -z "${ANDROID_SERIAL:-}" ] && [ -f config.properties ]; then
 fi
 export ANDROID_SERIAL="${ANDROID_SERIAL:?set TV_ADDRESS in config.properties or ANDROID_SERIAL}"
 
-PKG=com.aditya.tvhome
+PKG=com.aditya.cleanhome
 SERVICE=$PKG/$PKG.HomeInterceptService
 
 ./build.sh
 adb connect "$ANDROID_SERIAL" >/dev/null || true
 adb wait-for-device
-adb install -r build/tvhome.apk
+# Earlier builds used the package com.aditya.tvhome; remove it so only one launcher runs.
+adb uninstall com.aditya.tvhome >/dev/null 2>&1 || true
+adb install -r build/cleanhome.apk
 
 # Ahead-of-time compile so the first launch is as fast as later ones.
 adb shell cmd package compile -m speed -f $PKG >/dev/null

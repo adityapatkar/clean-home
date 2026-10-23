@@ -1,4 +1,4 @@
-package com.aditya.tvhome;
+package com.aditya.cleanhome;
 
 import android.Manifest;
 import android.app.Activity;
@@ -77,8 +77,8 @@ public class HomeActivity extends Activity {
             HomeInterceptService.AMAZON_HOME, "com.amazon.avod"));
 
     private static final String ACCESSIBILITY_SERVICE_ID =
-            "com.aditya.tvhome/com.aditya.tvhome.HomeInterceptService";
-    private static final String DREAM_ID = "com.aditya.tvhome/com.aditya.tvhome.ClockDream";
+            "com.aditya.cleanhome/com.aditya.cleanhome.HomeInterceptService";
+    private static final String DREAM_ID = "com.aditya.cleanhome/com.aditya.cleanhome.ClockDream";
     private static final String AMAZON_DREAM_ID = "com.amazon.ftv.screensaver/.app.services.ScreensaverService";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -103,7 +103,6 @@ public class HomeActivity extends Activity {
     private ImageView weatherIcon;
     private View weatherPill;
     private View lastAnchor;
-    private boolean needsReload;
     private boolean resetOnResume;
     private TextView hint;
     private Screensaver idleSaver;
@@ -191,10 +190,6 @@ public class HomeActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
-        if (needsReload) {
-            needsReload = false;
-            reload();
-        }
         if (wallpaperBitmap == null) loadWallpaper();
     }
 
@@ -214,21 +209,8 @@ public class HomeActivity extends Activity {
         super.onPause();
     }
 
-    @Override
-    public void onTrimMemory(int level) {
-        super.onTrimMemory(level);
-        // The wallpaper is already dropped in onStop; under real pressure while hidden,
-        // also let the banner tiles go (they are rebuilt on return).
-        if (level >= TRIM_MEMORY_BACKGROUND && !hasWindowFocus()) {
-            favGrid.removeAllViews();
-            appGrid.removeAllViews();
-            utilGrid.removeAllViews();
-            favorites.clear();
-            apps.clear();
-            utilities.clear();
-            needsReload = true;
-        }
-    }
+    // No onTrimMemory tile purge: banners are GPU-only (~6 MB in all), and rebuilding
+    // ~45 tiles on return from a heavy app made the Home button visibly slower.
 
     @Override
     protected void onNewIntent(Intent intent) {
@@ -320,6 +302,8 @@ public class HomeActivity extends Activity {
         int bleed = Ui.dp(this, 8);
         View bar = buildTopBar();
         bar.setPadding(bleed, 0, bleed, 0);
+        // Padding clips by default, which would cut the zoom off at the old edge again.
+        ((ViewGroup) bar).setClipToPadding(false);
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(-1, Ui.dp(this, 64));
         blp.setMargins(-bleed, 0, -bleed, 0);
         content.addView(bar, blp);

@@ -45,6 +45,15 @@ Clean Home works around this with an accessibility service:
 Switching inputs needs an Amazon-only permission, so the service drives Amazon's
 Inputs row the same way.
 
+Two more Fire OS quirks it handles:
+
+- **Waking the TV:** Fire OS goes to its home before the screen turns off and simply
+  resumes it on power-on, so the service also checks on every screen-on.
+- **The app-row icon:** Amazon shows sideloaded apps' square icon on grey bars, not
+  the TV banner. It replaces the icon of any HOME activity with a generic house, so
+  the app-list entry is a separate alias. It also caches tile art per package name,
+  even across uninstalls.
+
 ## Performance
 
 | | Clean Home | Amazon launcher |
