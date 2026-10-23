@@ -1,0 +1,5 @@
+build/
+config.properties
+*.keystore
+*.jks
+.DS_Store
